@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
@@ -12,6 +11,17 @@ export async function POST(req: Request) {
     if (!message || message.trim().length === 0) {
       return NextResponse.json({ result: "" });
     }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        { result: "Service configuration error." },
+        { status: 500 }
+      );
+    }
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
     const toneMap: Record<string, string> = {
       professional:
@@ -55,6 +65,7 @@ ${toneMap[tone] || toneMap.professional}
 
     return NextResponse.json({ result });
   } catch (error) {
+    console.error("Generate API error:", error);
     return NextResponse.json(
       { result: "Unable to generate a reply at the moment." },
       { status: 500 }
