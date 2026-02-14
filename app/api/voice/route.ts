@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import crypto from "crypto";
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
@@ -18,14 +14,6 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: "OpenAI API key not configured" },
-        { status: 500 }
-      );
-    }
-
-    // Initialize OpenAI at runtime (NOT build time)
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -36,22 +24,17 @@ export async function POST(req: Request) {
       input: text,
     });
 
-    const buffer = Buffer.from(await speech.arrayBuffer());
-    const fileName = `reply-${Date.now()}-${crypto.randomUUID()}.mp3`;
+    const audioBuffer = Buffer.from(await speech.arrayBuffer());
 
-    const dir = path.join(process.cwd(), "public", "voice");
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    const filePath = path.join(dir, fileName);
-    fs.writeFileSync(filePath, buffer);
-
-    return NextResponse.json({
-      audioUrl: `/voice/${fileName}`,
+    return new NextResponse(audioBuffer, {
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Content-Disposition": "inline; filename=reply.mp3",
+      },
     });
-  } catch (err) {
-    console.error("Voice API error:", err);
+
+  } catch (error) {
+    console.error("Voice generation error:", error);
 
     return NextResponse.json(
       { error: "Voice generation failed" },

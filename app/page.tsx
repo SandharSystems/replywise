@@ -11,29 +11,46 @@ export default function Home() {
   const [tone, setTone] = useState("professional");
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [remaining, setRemaining] = useState(5);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   const generateReply = async () => {
     if (!input.trim() || remaining <= 0) return;
 
     setLoading(true);
     setOutput("");
+    setAudioUrl(null);
 
     try {
+      // 1️⃣ Generate text reply
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: input,
-          tone,
-          voice: voiceEnabled,
-        }),
+        body: JSON.stringify({ message: input, tone }),
       });
 
       const data = await res.json();
-      setOutput(data.result || "No reply generated.");
-      setInput("");
+      const replyText = data.result || "No reply generated.";
+
+      setOutput(replyText);
       setRemaining((r) => r - 1);
-    } catch (e) {
+
+      // 2️⃣ Generate voice if enabled
+      if (voiceEnabled && replyText) {
+        const voiceRes = await fetch("/api/voice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: replyText }),
+        });
+
+        if (voiceRes.ok) {
+          const blob = await voiceRes.blob();
+          const url = URL.createObjectURL(blob);
+          setAudioUrl(url);
+        }
+      }
+
+      setInput("");
+    } catch (err) {
       setOutput("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
@@ -43,6 +60,7 @@ export default function Home() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
       <div className="w-full max-w-xl bg-white rounded-2xl shadow-md p-8">
+
         {/* Header */}
         <div className="flex items-center gap-3 mb-2">
           <Image
@@ -55,7 +73,6 @@ export default function Home() {
           <h1 className="text-2xl font-semibold">ReplyWise</h1>
         </div>
 
-        {/* Tagline */}
         <p className="text-sm text-gray-500 mb-4">
           Human-quality replies for modern business communication
         </p>
@@ -139,6 +156,12 @@ export default function Home() {
           <div className="border rounded-lg p-4 mb-6">
             <strong className="block mb-2">ReplyWise</strong>
             <p className="whitespace-pre-line text-sm">{output}</p>
+
+            {audioUrl && (
+              <audio controls className="mt-4 w-full">
+                <source src={audioUrl} type="audio/mpeg" />
+              </audio>
+            )}
           </div>
         )}
 
