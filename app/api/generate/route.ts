@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { redis } from "@/lib/redis";
 
 export const runtime = "nodejs";
+
+const FREE_LIMIT = 5;
 
 export async function POST(req: Request) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
 
     if (!apiKey) {
-      console.error("Missing OPENAI_API_KEY");
       return NextResponse.json(
-        { result: "Server configuration error." },
+        { error: "Server configuration error." },
         { status: 500 }
       );
     }
@@ -22,6 +24,38 @@ export async function POST(req: Request) {
     if (!message || message.trim().length === 0) {
       return NextResponse.json({ result: "" });
     }
+
+    // ===============================
+    // 1️⃣ Identify user (IP-based)
+    // ===============================
+
+    const ip =
+      req.headers.get("x-forwarded-for") ||
+      req.headers.get("x-real-ip") ||
+      "anonymous";
+
+    const today = new Date().toISOString().split("T")[0];
+    const redisKey = `usage:${ip}:${today}`;
+
+    // ===============================
+    // 2️⃣ Check current usage
+    // ===============================
+
+    const currentUsage = (await redis.get<number>(redisKey)) || 0;
+
+    if (currentUsage >= FREE_LIMIT) {
+      return NextResponse.json(
+        {
+          error: "LIMIT_REACHED",
+          upgradeRequired: true,
+        },
+        { status: 403 }
+      );
+    }
+
+    // ===============================
+    // 3️⃣ Generate AI reply
+    // ===============================
 
     const toneMap: Record<string, string> = {
       professional:
@@ -37,14 +71,14 @@ export async function POST(req: Request) {
     const systemPrompt = `
 You are a professional business communicator.
 
-Rules you MUST follow:
-- Never mention AI, models, or automation
-- Vary sentence length naturally
-- Avoid repeating phrases
-- Keep replies concise but complete
-- Sound thoughtful and experienced
+Rules:
+- Never mention AI
+- Avoid repetition
+- Keep it concise
+- Sound experienced
+- Human tone only
 
-Tone guidance:
+Tone:
 ${toneMap[tone] || toneMap.professional}
     `.trim();
 
@@ -61,11 +95,22 @@ ${toneMap[tone] || toneMap.professional}
     const result =
       completion.choices?.[0]?.message?.content?.trim() || "";
 
-    return NextResponse.json({ result });
+    // ===============================
+    // 4️⃣ Increment usage
+    // ===============================
+
+    await redis.set(redisKey, currentUsage + 1, {
+      ex: 60 * 60 * 24, // 24 hours expiry
+    });
+
+    return NextResponse.json({
+      result,
+      remaining: FREE_LIMIT - (currentUsage + 1),
+    });
   } catch (error) {
     console.error("Generate API Error:", error);
     return NextResponse.json(
-      { result: "Unable to generate a reply at the moment." },
+      { error: "Unable to generate reply." },
       { status: 500 }
     );
   }
